@@ -10,46 +10,52 @@ def main():
 
     # diretórios e arquivos utilizados
     entradasDir = "entradas"
-    filtrosFile = entradasDir  +"/" + "filtros"
+    #filtrosFile = entradasDir  +"/" + "filtros"
     ipFile = entradasDir + "/" + "ips"
     promptsFile = entradasDir + "/" + "prompts"
     commandsFile = entradasDir + "/" + "comandos"
+    commandsCisco = entradasDir + "/" + "comandosCisco"
+    commands2530 = entradasDir + "/" + "comandos2530"
     
     # iterando no arquivo que contém os ips dos switches
     ips = open(ipFile, "r")
-    saida = ""
+    #saida = ""
     for ip in ips.read().split("\n"):
         print(f"Iterando em {ip}")
         try:
-            tabTemp = iteraSwitches(ip, user, senha, promptsFile, commandsFile)
-            hostname = getHostname(tabTemp)
-            tabTemp = filtraTexto(tabTemp, filtrosFile)
-            saida += f"{hostname} - {ip}\n"
-            for x in tabTemp:
-                for y in x:
-                    saida += y[:-1] + "\n"
-        except:
+            tabTemp = iteraSwitches(ip, user, senha, promptsFile, commandsFile, commandsCisco, commands2530)
+            #hostname = getHostname(tabTemp)
+            #tabTemp = filtraTexto(tabTemp, filtrosFile)
+            #saida += f"{hostname} - {ip}\n"
+            #for x in tabTemp.split("\n"):
+            #    print(x)
+            #    for y in x:
+            #        saida += y[:-1] + "\n"
+                    #print(y)
             logFile = open(f"log/{ip}.log", 'w')
-            logFile.write(f"{ip}\n")
-            print(f"Ip {ip} não acessado")
+            #logFile.write(f"{ip}\n" + str(tabTemp))
+            logFile.write(tabTemp)
             logFile.close()
+        except:
+            print(f"Ip {ip} não acessado")
     ips.close()
-    print(saida)
-    outputFile = open("portasBixadas.txt", 'w')
-    outputFile.write(saida)
-    outputFile.close()
+    #print(saida)
+    #print(tabTemp)
+    #outputFile = open("portasBixadas.txt", 'w')
+    #outputFile.write(saida)
+    #outputFile.close()
     return
 
 
 def getHostname(texto):
+    temp = ""
     for linha in texto.split("\n"):
         if linha[0] == "<":
-            temp = ""
             for letra in linha:
                 if letra not in (string.ascii_uppercase + string.punctuation + string.digits):
                     return temp[1:]
                 temp += letra
-    return "-"
+    return temp
 
 
 def filtraTexto(entrada, filtrosFile):
@@ -58,7 +64,7 @@ def filtraTexto(entrada, filtrosFile):
     k = 0 # contador de condições, se chegar a 2 o input não entra na tabela
     print("Filtrando o texto")
     for i in range(len(tabTemp)):
-        if "GigabitEthernet" in tabTemp[i] and "Administratively" not in tabTemp[i] and 'Description' not in tabTemp[i]:
+        if "GigabitEthernet" in tabTemp[i] and "Administratively" not in tabTemp[i] and 'Description' not in tabTemp[i]: 
             temp = [tabTemp[i]]
             for j in range(i+1, len(tabTemp)):
                 if "GigabitEthernet" in tabTemp[j] and 'Description' not in tabTemp[j]:
@@ -86,34 +92,45 @@ def loginSpecial(arquivo, child):
         i += 2
 
 
-def iteraSwitches(ip, user, senha, promptsFile, commandsFile):
-    temp = []
-    child = pexpect.spawn(f"ssh -c aes128-cbc {user}@{ip}", echo=True)
-    child.expect("password:")
+def iteraSwitches(ip, user, senha, promptsFile, commandsFile, commandsCisco, commands2530):
+    child = pexpect.spawn(f"ssh {user}@{ip}", echo=True)
+    child.expect("assword:")
     child.sendline(senha)
     print("Mandou o password!")
-    prompt = child.expect(getPrompts(promptsFile))
-    if prompt == 0:
-        print("Detectou o 1910")
-        loginSpecial("entradas/login1910", child)
-        temp = mandaComandos(commandsFile, "(?i)>", child)
-        print("Mandou o comando!")
-        child.sendline("quit\r")
-        child.expect(pexpect.EOF)
-    elif prompt == 1:
-        print("Detectou o 5120!")
-        temp = mandaComandos(commandsFile, "(?i)>", child)
-        print("Mandou o comando!")
-        child.sendline("quit\r")
-        child.expect(pexpect.EOF)
-    else:
-        print("Não Detectou nada!")
+    promptsList = getPrompts(promptsFile)
+    prompt = child.expect(promptsList)
+    temp = ""
+
+    for i in range(len(promptsList)):
+        if prompt == i:
+            print(f"Detectou o {promptsList[i][4:-4]}")
+            if i == 0: # comandos especiais do 1910, o resto segue igual
+                loginSpecial("entradas/login1910", child)
+            if i == 2: # se for switch da cisco
+                temp = mandaComandos(commandsCisco, "(?i)#", child)
+                print("Mandou os comandos!")
+                child.sendline("exit\r")
+            elif i == 5: # 2530, os poe
+                child.expect("(?i)continue")
+                child.sendline("\r")
+                temp = mandaComandos(commands2530, "(?i)#", child)
+                print("Mandou os comandos!")
+                child.sendline("quit\r")
+                child.expect("(?i)>")
+                child.expect("(?i)?")
+                child.sendline("quit\r")
+                child.sendline("y\r")
+            else:
+                temp = mandaComandos(commandsFile, "(?i)>", child)
+                print("Mandou os comandos!")
+                child.sendline("quit\r")
+            child.expect(pexpect.EOF)
     return temp
 
 
 def validaLinha(filtrosFile, linha):
     f = open(filtrosFile, 'r')
-    filtros = f.read().split('\n')[:-1] # última alteração
+    filtros = f.read().split('\n')[:-1]
     print(filtros)
     f.close()
     for x in filtros:
